@@ -1,3 +1,26 @@
+module tt_um_funproj (
+    input  wire [7:0] ui_in,
+    output wire [7:0] uo_out,  
+    input  wire [7:0] uio_in, 
+    output wire [7:0] uio_out,
+    output wire [7:0] uio_oe,
+    input  wire       ena, 
+    input  wire       clk, 
+    input  wire       rst_n
+);
+    assign uio_out = 8'b0;
+    assign uio_oe  = 8'b0;
+
+    simple_cpu my_cpu (
+        .clk(clk),
+        .reset(!rst_n),
+        .keyboard_in(ui_in), 
+        .screen_out(uo_out), 
+        .alu_out_monitor()
+    );
+
+endmodule
+
 module simple_cpu (
     input clk,
     input reset,
@@ -35,8 +58,11 @@ module simple_cpu (
     end 
     
     always @(posedge clk) begin
-      if (ram_write && mem_address == 8'hFF)
+      if (reset) begin
+          screen_buffer <= 8'h20;
+      end else if (ram_write && mem_address == 8'hFF) begin
           screen_buffer <= data_a; 
+      end
     end
 
     instruction_rom ROM_UNIT (
@@ -82,18 +108,18 @@ endmodule
 
 module instruction_rom (
     input [7:0] addr,
-    output [7:0] data
+    output reg [7:0] data
 );
-    reg [7:0] mem [255:0];
-  	integer i;
-    
-    initial begin
-        
-        for (i = 0; i < 256; i = i + 1) mem[i] = 8'h00;
-        $readmemb("program.txt", mem);
+    always @(*) begin
+        case(addr)
+            8'h00: data = 8'b10000111;
+            8'h01: data = 8'b10100000;
+            8'h02: data = 8'b10001111;
+            8'h03: data = 8'b00110000;
+            8'h04: data = 8'b11000001;
+            default: data = 8'h00;
+        endcase
     end
-    
-    assign data = mem[addr];
 endmodule
 
 module control_unit (
