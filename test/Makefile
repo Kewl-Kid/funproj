@@ -33,13 +33,13 @@ VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
 
 endif
 
-# Include the testbench sources:
+# Include the testbench sources (the code you just pasted):
 VERILOG_SOURCES += $(PWD)/tb.v
 
-# TOPLEVEL is the name of the toplevel module in your Verilog or VHDL file
-TOPLEVEL = tt_um_funproj
+# TOPLEVEL is the name of the toplevel module in your testbench (module tb)
+TOPLEVEL = tb
 
-# MODULE is the basename of the Python test file
+# MODULE is the basename of the Python test file (test.py)
 MODULE = test
 
 # Allow sharing configuration between design and testbench via `include`:
