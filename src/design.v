@@ -30,7 +30,7 @@ module tiny_cpu (
     // Minimal state: 3-bit PC, 2 registers, tiny RAM
     reg [2:0] pc;
     reg [7:0] reg_a, reg_b;
-    reg [7:0] ram [7:0];  // Only 8 bytes of RAM
+    reg [127:0] ram [127:0];  // Only 128 bytes of RAM
     
     wire [7:0] instruction;
     wire [7:0] alu_result;
