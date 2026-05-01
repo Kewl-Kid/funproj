@@ -11,169 +11,105 @@ module tt_um_funproj (
     assign uio_out = 8'b0;
     assign uio_oe  = 8'b0;
 
-    simple_cpu my_cpu (
+    tiny_cpu my_cpu (
         .clk(clk),
         .reset(!rst_n),
         .keyboard_in(ui_in), 
-        .screen_out(uo_out), 
-        .alu_out_monitor()
+        .screen_out(uo_out)
     );
 
 endmodule
 
-module simple_cpu (
+module tiny_cpu (
     input clk,
     input reset,
-    output [7:0] alu_out_monitor,
     input [7:0] keyboard_in,
-    output [7:0] screen_out
+    output reg [7:0] screen_out
 );
 
+    // Minimal state: 3-bit PC, 2 registers, tiny RAM
+    reg [2:0] pc;
+    reg [7:0] reg_a, reg_b;
+    reg [7:0] ram [7:0];  // Only 8 bytes of RAM
+    
     wire [7:0] instruction;
-    wire [1:0] sel_dest, sel_a, sel_b;
-    wire [7:0] data_a, data_b, alu_result, reg_wr_data;
-    wire alu_op, reg_write, load_en, jump_en;
-    wire load_imm, ram_write, sel_ram_to_reg; 
-    wire is_zero;
-    wire [7:0] ram_data_out;
-    wire [7:0] data_to_cpu;
+    wire [7:0] alu_result;
     
-    reg [7:0] pc_reg;
-    reg [7:0] screen_buffer;
-
-    wire [7:0] mem_address = data_b;
-
-    assign data_to_cpu = (mem_address == 8'hFE) ? keyboard_in : ram_data_out;
-    assign screen_out = screen_buffer;
-
-    wire actual_jump = (instruction[5] == 0) ? jump_en : (jump_en && is_zero);
-
-    always @(posedge clk) begin 
-      if (reset) 
-          pc_reg <= 8'h00;
-      else if (actual_jump) 
-          pc_reg <= instruction; 
-      else 
-          pc_reg <= pc_reg + 1;
-    end 
+    // Decode
+    wire [1:0] opcode = instruction[7:6];
+    wire [2:0] addr = instruction[2:0];
+    wire reg_sel = instruction[3];  // 0=reg_a, 1=reg_b
+    wire imm_mode = instruction[4];
     
-    always @(posedge clk) begin
-      if (reset) begin
-          screen_buffer <= 8'h20;
-      end else if (ram_write && mem_address == 8'hFF) begin
-          screen_buffer <= data_a; 
-      end
+    // Micro ROM - 8 instructions max
+    reg [7:0] rom [7:0];
+    initial begin
+        rom[0] = 8'b10010000;  // LOAD reg_a from keyboard (imm=1, reg_sel=0)
+        rom[1] = 8'b00000000;  // ADD reg_a + ram[0] -> reg_a
+        rom[2] = 8'b11000000;  // STORE reg_a to screen
+        rom[3] = 8'b00000001;  // ADD reg_a + ram[1] -> reg_a
+        rom[4] = 8'b11000000;  // STORE reg_a to screen
+        rom[5] = 8'b00000000;  // LOOP
+        rom[6] = 8'b00000000;
+        rom[7] = 8'b00000000;
     end
-
-    instruction_rom ROM_UNIT (
-        .addr(pc_reg), 
-        .data(instruction)
-    );
-
-    control_unit DECODER (
-        .instr(instruction), 
-        .alu_op(alu_op), 
-        .reg_write(reg_write),
-        .load_en(load_en),
-        .load_imm(load_imm),
-        .ram_write(ram_write),
-        .sel_ram_to_reg(sel_ram_to_reg),
-        .jump_en(jump_en), 
-        .sel_dest(sel_dest), .sel_a(sel_a), .sel_b(sel_b)
-    );  
-
-    register_file REGS (
-        .clk(clk), .reset(reset), .wr_en(reg_write),
-        .wr_addr(sel_dest), .wr_data(reg_wr_data),
-        .rd_addr_a(sel_a), .rd_data_a(data_a),
-        .rd_addr_b(sel_b), .rd_data_b(data_b)
-    );
-
-    data_ram RAM_UNIT (
-      .clk(clk),
-      .wr_en(ram_write && mem_address < 8'hFE), 
-      .addr(mem_address),
-      .din(data_a),
-      .dout(ram_data_out)
-    );
-
-    assign reg_wr_data = (load_imm) ? instruction : 
-                         (sel_ram_to_reg) ? data_to_cpu : alu_result;
-
-    assign alu_result = (alu_op == 0) ? (data_a + data_b) : (data_a - data_b);
-    assign is_zero = (alu_result == 8'b0);
-    assign alu_out_monitor = alu_result;
-
-endmodule
-
-module instruction_rom (
-    input [7:0] addr,
-    output reg [7:0] data
-);
-    always @(*) begin
-        case(addr)
-            8'h00: data = 8'b10000111;
-            8'h01: data = 8'b10100000;
-            8'h02: data = 8'b10001111;
-            8'h03: data = 8'b00110000;
-            8'h04: data = 8'b11000001;
-            default: data = 8'h00;
-        endcase
-    end
-endmodule
-
-module control_unit (
-    input [7:0] instr,
-    output reg alu_op, reg_write, load_en, jump_en,
-    output reg load_imm, ram_write, sel_ram_to_reg,
-    output [1:0] sel_dest, sel_a, sel_b
-);
-    assign sel_dest = instr[5:4];
-    assign sel_a    = instr[3:2];
-    assign sel_b    = instr[1:0];
-
-    always @(*) begin
-        {alu_op, reg_write, load_en, jump_en, load_imm, ram_write, sel_ram_to_reg} = 7'b0000000;
-        case (instr[7:6])
-            2'b00: begin 
-                if (instr[5:4] == 2'b11) ram_write = 1; 
-                else begin alu_op = 0; reg_write = 1; end
-            end
-            2'b01: begin alu_op = 1; reg_write = 1; end 
-            2'b10: begin 
-                reg_write = 1;
-                if (instr[5] == 0) load_imm = 1;
-                else sel_ram_to_reg = 1;
-            end
-            2'b11: jump_en = 1; 
-        endcase
-    end
-endmodule
-
-module register_file (
-    input clk, reset, wr_en,
-    input [1:0] wr_addr, rd_addr_a, rd_addr_b,
-    input [7:0] wr_data,
-    output [7:0] rd_data_a, rd_data_b
-);
-    reg [7:0] regs [3:0];
-    assign rd_data_a = regs[rd_addr_a];
-    assign rd_data_b = regs[rd_addr_b];
+    
+    assign instruction = rom[pc];
+    
+    // Simplified ALU
+    assign alu_result = reg_a + ram[addr];
+    
+    // RAM initialization
     integer i;
-    always @(posedge clk) begin
-        if (reset) for (i=0; i<4; i=i+1) regs[i] <= 0;
-        else if (wr_en) regs[wr_addr] <= wr_data;
+    initial begin
+        for (i = 0; i < 8; i = i + 1) ram[i] = 8'h00;
     end
-endmodule 
+    
+    always @(posedge clk) begin
+        if (reset) begin
+            pc <= 3'b000;
+            reg_a <= 8'h00;
+            reg_b <= 8'h00;
+            screen_out <= 8'h20;  // Space character
+        end else begin
+            case (opcode)
+                2'b00: begin  // ADD/LOAD
+                    if (imm_mode) begin
+                        if (reg_sel) reg_b <= keyboard_in;
+                        else reg_a <= keyboard_in;
+                    end else begin
+                        if (reg_sel) reg_b <= alu_result;
+                        else reg_a <= alu_result;
+                    end
+                    pc <= pc + 1;
+                end
+                
+                2'b01: begin  // STORE to RAM
+                    ram[addr] <= reg_sel ? reg_b : reg_a;
+                    pc <= pc + 1;
+                end
+                
+                2'b10: begin  // LOAD from RAM
+                    if (imm_mode) begin
+                        if (reg_sel) reg_b <= keyboard_in;
+                        else reg_a <= keyboard_in;
+                    end else begin
+                        if (reg_sel) reg_b <= ram[addr];
+                        else reg_a <= ram[addr];
+                    end
+                    pc <= pc + 1;
+                end
+                
+                2'b11: begin  // STORE to screen / JUMP
+                    if (imm_mode) begin
+                        pc <= addr;  // JUMP
+                    end else begin
+                        screen_out <= reg_sel ? reg_b : reg_a;
+                        pc <= pc + 1;
+                    end
+                end
+            endcase
+        end
+    end
 
-module data_ram (
-    input clk, wr_en,
-    input [7:0] addr,
-    input [7:0] din, 
-    output [7:0] dout
-);
-    reg [7:0] ram [255:0];
-    assign dout = ram[addr];
-    always @(posedge clk) 
-        if (wr_en) ram[addr] <= din;
 endmodule
